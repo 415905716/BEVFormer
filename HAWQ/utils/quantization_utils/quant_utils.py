@@ -227,6 +227,17 @@ class ste_round(Function):
     def backward(ctx, grad_output):
         return grad_output.clone()
 
+class ste_floor(Function):
+    """
+    Straight-through Estimator(STE) for torch.floor()
+    """
+    @staticmethod
+    def forward(ctx, x):
+        return torch.floor(x)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output.clone()
 
 class SymmetricQuantFunction(Function):
     """

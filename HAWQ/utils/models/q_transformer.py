@@ -4,6 +4,8 @@ Quantize Transformer
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn import Module, Parameter
+from torch import Tensor
 import copy
 from ..quantization_utils.quant_modules import *
 from pytorchcv.models.common import ConvBlock
@@ -11,8 +13,11 @@ from pytorchcv.models.shufflenetv2 import ShuffleUnit, ShuffleInitBlock
 import time
 import logging
 import sys
+from typing import Optional, List
 sys.path.append('../../../detr')
 from util.misc import NestedTensor, is_main_process
+
+logger = logging.getLogger(__name__)
 
 class Q_input_proj(nn.Module):
     def __init__(self, model):
@@ -20,12 +25,12 @@ class Q_input_proj(nn.Module):
         self.quant_conv = QuantConv2d()
         self.quant_conv.set_param(model)
         self.quant_act_int = QuantAct()
-        print("quant_act_int activate!")
+        # print("quant_act_int activate!")
     def forward(self, x, pre_act_scaling_factor=None):
-        # x, weight_scaling_factor = self.quant_conv(x,pre_act_scaling_factor)
-        # x, act_scaling_factor = self.quant_act_int(x, pre_act_scaling_factor, weight_scaling_factor)
-        # return (x, act_scaling_factor)
-        return self.quant_conv(x,pre_act_scaling_factor)
+        x, weight_scaling_factor = self.quant_conv(x,pre_act_scaling_factor)
+        x, act_scaling_factor = self.quant_act_int(x, pre_act_scaling_factor, weight_scaling_factor)
+        return (x, act_scaling_factor)
+        # return self.quant_conv(x,pre_act_scaling_factor)
 
 class Q_query_embed(nn.Module):
     def __init__(self, emb):
@@ -34,167 +39,161 @@ class Q_query_embed(nn.Module):
     def forward(self,x):
         return self.quant_emb(x)
 
-class QuantLayerNorm(nn.Module):
-    def __init__(self,
-                 weight_bit=4,
-                 full_precision_flag=False,
-                 quant_mode="symmetric",
-                 per_channel=False,
-                 fix_flag=False,
-                 weight_percentile=0,
-                 fix_LN=False,
-                 fix_LN_threshold=None):
-        super(QuantLayerNorm, self).__init__()
-        self.weight_bit = weight_bit
-        self.full_precision_flag = full_precision_flag
-        self.per_channel = per_channel
-        self.fix_flag = fix_flag
-        self.weight_percentile = weight_percentile
-        self.quant_mode = quant_mode
-        self.fix_LN = fix_LN
-        self.training_LN_mode = fix_LN
-        self.fix_LN_threshold = fix_LN_threshold
-        self.counter = 1
-    def set_param(self, layernorm):
-        self.normalized_shape = layernorm.normalized_shape
-        self.register_buffer('ln_scaling_factor', torch.zeros(self.normalized_shape))
-        self.register_buffer('weight_integer', torch.zeros_like(layernorm.weight.data))
-        self.register_buffer('bias_integer', torch.zeros_like(layernorm.bias))
+class Q_bbox_embed(nn.Module):
+    """
+    input -> act_in -> linear1 -> act1 -> linear2 -> act2 -> linear3: output
+    """
+    def __init__(self, module_list):
+        super().__init__()
+        self.quant_act_in = QuantAct()
+        self.quant_linear1 = QuantLinear()
+        self.quant_linear1.set_param(module_list.layers[0])
+        self.quant_act1 = QuantAct()
+        self.quant_linear2 = QuantLinear()
+        self.quant_linear2.set_param(module_list.layers[1])
+        self.quant_act2 = QuantAct()
+        self.quant_linear3 = QuantLinear()
+        self.quant_linear3.set_param(module_list.layers[2])
+    def forward(self,hs):
+        x,act_scaling_factor = self.quant_act_in(hs)
+        x = self.quant_linear1(x,act_scaling_factor)
+        x = F.relu(x)
 
-        self.ln = layernorm
-        # self.ln.eps = 1e-5
-    # TODO:
-    def __repr__(self):
-        conv_s = super(QuantLayerNorm, self).__repr__()
-        s = "({0}, weight_bit={1}, bias_bit={2}, groups={3}, wt-channel-wise={4}, wt-percentile={5}, quant_mode={6})".format(
-            conv_s, self.weight_bit, '?', '?', self.per_channel, self.weight_percentile, self.quant_mode)
-        return s
+        x,act_scaling_factor = self.quant_act1(x)
+        x = self.quant_linear2(x,act_scaling_factor)
+        x = F.relu(x)
+
+        x,act_scaling_factor = self.quant_act2(x)
+        out = self.quant_linear3(x,act_scaling_factor)
+        return out
+
+class Q_class_embed(nn.Module):
+    """decoder_out:layernorm -> act -> linear"""
+    def __init__(self, module):
+        super().__init__()
+        self.quant_in = QuantAct()
+        self.quant_linear = QuantLinear()
+        self.quant_linear.set_param(module)
+    def forward(self, hs):
+        x, act_scaling_factor = self.quant_in(hs)
+        outputs_class = self.quant_linear(x, act_scaling_factor)
+        return outputs_class
+
+
+class QuantLayerNorm(Module):
+    """
+    Class to quantize given LayerNorm layer
+    Parameters:
+    ----------
+    output_bit : int
+        Bitwidth for the LayerNorm output.
+    overflow_handling : bool, default True
+        Whether to do overflow handling if the intermediate values are larger than 32-bit.
+    quant_mode : 'none' or 'symmetric', default 'none'
+        The mode for quantization. 'none' for no quantization.
+    force_dequant : str, default 'none'
+        Force dequantize LayerNorm if either 'layernorm' or 'nonlinear' is given.
+    """
+    def __init__(self,
+                 output_bit,
+                 overflow_handling=True,
+                 quant_mode='symmetric',
+                 force_dequant='none'):
+        super(QuantLayerNorm, self).__init__()
+        self.quant_mode = quant_mode
+        if force_dequant in ['nonlinear', 'layernorm']:
+            logger.info("Force dequantize layernorm")
+            self.quant_mode = 'none'
+        self.overflow_handling = overflow_handling
+        self.register_buffer('shift', torch.zeros(1))
+        self.output_bit = output_bit
+        self.dim_sqrt = None
+
+        self.activation = QuantAct(output_bit, quant_mode=self.quant_mode)
+        if self.quant_mode == "none":
+            pass
+        elif quant_mode == "symmetric":
+            self.weight_function = SymmetricQuantFunction.apply
+        elif quant_mode == "asymmetric":
+            raise NotImplementedError("unsupported quant mode: {}".format(self.quant_mode))
+        else:
+            raise ValueError("unknown quant mode: {}".format(quant_mode))
+
     def fix(self):
-        """
-        fix the LN statistics by setting fix_LN to True
-        """
-        self.fix_flag = True
-        self.fix_LN = True
+        self.overflow_handling = False
 
     def unfix(self):
-        """
-        change the mode (fixed or not) of LN statistics to its original status
-        """
-        self.fix_flag = False
-        self.fix_LN = self.training_LN_mode
-    def forward(self, x, pre_act_scaling_factor=None):
-        """
-        x: the input activation
-        pre_act_scaling_factor: the scaling factor of the previous activation quantization layer
+        self.overflow_handling = True
 
-        """
-        if type(x) is tuple:
-            pre_act_scaling_factor = x[1]
-            x = x[0]
+    def set_param(self, ln):
+        self.normalized_shape = ln.normalized_shape
+        self.eps = ln.eps
+        self.weight = Parameter(ln.weight.data.clone())
+        self.bias = Parameter(ln.bias.data.clone())
 
-        if self.quant_mode == "symmetric":
-            self.weight_function = SymmetricQuantFunction.apply
-        elif self.quant_mode == "asymmetric":
-            self.weight_function = AsymmetricQuantFunction.apply
-        else:
-            raise ValueError("unknown quant mode: {}".format(self.quant_mode))
+    def set_shift(self, y_int):
+        with torch.no_grad():
+            y_sq_int = y_int ** 2
+            var_int = torch.sum(y_sq_int, axis=2, keepdim=True)
+            shift = (torch.log2(torch.sqrt(var_int / 2**32)).ceil()).max()
+            shift_old = self.shift
+            self.shift = torch.max(self.shift, shift)
+            logger.info("Dynamic shift adjustment: {} -> {}".format(
+                int(shift_old), int(self.shift)))
 
-        # determine whether to fold LN or not
-        if self.fix_flag == False:
-            self.counter += 1
-            if (self.fix_LN_threshold == None) or (self.counter < self.fix_LN_threshold):
-                self.fix_LN = self.training_LN_mode
-            else:
-                if self.counter == self.fix_LN_threshold:
-                    print("Start Training with Folded LN")
-                self.fix_LN = True
+    def overflow_fallback(self, y_int):
+        self.set_shift(y_int)
+        y_int_shifted = ste_floor.apply(y_int / 2 ** self.shift)
+        y_sq_int = y_int_shifted ** 2
+        var_int = torch.sum(y_sq_int, axis=2, keepdim=True)
+        return var_int
 
-        # run the forward without folding LN
-        if self.fix_LN == False:
-            layer_mean = torch.mean(x.data,dim=-1,keepdim=True)
-            layer_var = torch.var(x.data,dim=-1,keepdim=True)
-            (x - layer_mean)/torch.sqrt(layer_var)
-            # w_transform = self.conv.weight.data.contiguous().view(self.conv.out_channels, -1)
-            # w_min = w_transform.min(dim=1).values
-            # w_max = w_transform.max(dim=1).values
-            #
-            # conv_scaling_factor = symmetric_linear_quantization_params(self.weight_bit, w_min, w_max, self.per_channel)
-            # weight_integer = self.weight_function(self.conv.weight, self.weight_bit, conv_scaling_factor)
-            # conv_output = F.conv2d(x, weight_integer, self.conv.bias, self.conv.stride, self.conv.padding,
-            #                        self.conv.dilation, self.conv.groups) * conv_scaling_factor.view(1, -1, 1, 1)
-            #
-            # batch_mean = torch.mean(conv_output, dim=(0, 2, 3))
-            # batch_var = torch.var(conv_output, dim=(0, 2, 3))
-            #
-            # # update mean and variance in running stats
-            # self.bn.running_mean = self.bn.running_mean.detach() * self.bn.momentum + (
-            #             1 - self.bn.momentum) * batch_mean
-            # self.bn.running_var = self.bn.running_var.detach() * self.bn.momentum + (1 - self.bn.momentum) * batch_var
-            #
-            # output_factor = self.bn.weight.view(1, -1, 1, 1) / torch.sqrt(batch_var + self.bn.eps).view(1, -1, 1, 1)
-            # output = output_factor * (conv_output - batch_mean.view(1, -1, 1, 1)) + self.bn.bias.view(1, -1, 1, 1)
-            #
-            # return (output, conv_scaling_factor.view(-1) * output_factor.view(-1))
-        # fix LN, weights and bias stop updating during training
-        else:
-            layer_mean = torch.mean(x.data,dim=-1,keepdim=True)
-            layer_var = torch.var(x.data,dim=-1,keepdim=True)
+    def forward(self, x, scaling_factor=None, exponents=None):
+        if self.quant_mode == 'none':
+            mean = x.mean(axis=2, keepdim=True)
+            y = x - mean
+            var = torch.mean(y ** 2, axis=2, keepdim=True)
+            x = y / torch.sqrt(self.eps + var)
+            x = x * self.weight + self.bias
+            return x, None
 
+        assert self.quant_mode == 'symmetric', \
+                "unsupported quant mode: {}".format(self.quant_mode)
 
-            #-------------------
-            running_std = torch.sqrt(self.bn.running_var.detach() + self.bn.eps)
-            scale_factor = self.bn.weight / running_std
-            scaled_weight = self.conv.weight * scale_factor.reshape([self.conv.out_channels, 1, 1, 1])
+        if self.dim_sqrt is None:
+            n = torch.tensor(x.shape[2], dtype=torch.float) # feature dim(768)
+            self.dim_sqrt = torch.sqrt(n).cuda()
 
-            if self.conv.bias is not None:
-                scaled_bias = self.conv.bias
-            else:
-                scaled_bias = torch.zeros_like(self.bn.running_mean)
-            scaled_bias = (scaled_bias - self.bn.running_mean.detach()) * scale_factor + self.bn.bias
+        # Normalization: computes mean and variance(std)
+        x_int = x / scaling_factor
+        mean_int = ste_round.apply(x_int.mean(axis=2, keepdim=True))
+        y_int = x_int - mean_int
+        y_int_shifted = ste_floor.apply(y_int / 2 ** self.shift) # avoid overflow
+        y_sq_int = y_int_shifted ** 2
+        var_int = torch.sum(y_sq_int, axis=2, keepdim=True)
 
-            if not self.full_precision_flag:
-                if self.per_channel:
-                    w_transform = scaled_weight.data.contiguous().view(self.conv.out_channels, -1)
+        # overflow handling in training stage
+        if self.overflow_handling:
+            if var_int.max() >= 2**32:
+                var_int = self.overflow_fallback(y_int)
+                assert var_int.max() < 2**32
 
-                    if self.weight_percentile == 0:
-                        w_min = w_transform.min(dim=1).values
-                        w_max = w_transform.max(dim=1).values
-                    else:
-                        lower_percentile = 100 - self.weight_percentile
-                        upper_percentile = self.weight_percentile
-                        input_length = w_transform.shape[1]
+        # To be replaced with integer-sqrt kernel that produces the same output
+        std_int = ste_floor.apply(torch.sqrt(var_int)) * 2 ** self.shift
+        factor = ste_floor.apply(2**31 / std_int)
+        y_int = ste_floor.apply(y_int * factor / 2)
+        scaling_factor = self.dim_sqrt / 2**30
 
-                        lower_index = math.ceil(input_length * lower_percentile * 0.01)
-                        upper_index = math.ceil(input_length * upper_percentile * 0.01)
+        # scaling and shifting
+        bias = self.bias.data.detach() / (self.weight.data.detach())
+        bias_int = ste_floor.apply(bias / scaling_factor)
 
-                        w_min = torch.kthvalue(w_transform, k=lower_index, dim=1).values
-                        w_max = torch.kthvalue(w_transform, k=upper_index, dim=1).values
-                else:
-                    if self.weight_percentile == 0:
-                        w_min = scaled_weight.data.min()
-                        w_max = scaled_weight.data.max()
-                    else:
-                        w_min, w_max = get_percentile_min_max(scaled_weight.view(-1), 100 - self.weight_percentile,
-                                                              self.weight_percentile, output_tensor=True)
+        y_int = y_int + bias_int
+        scaling_factor = scaling_factor * self.weight
+        x = y_int * scaling_factor
 
-                if self.quant_mode == 'symmetric':
-                    self.convbn_scaling_factor = symmetric_linear_quantization_params(self.weight_bit,
-                                                                                      w_min, w_max, self.per_channel).cuda()
-                    self.weight_integer = self.weight_function(scaled_weight, self.weight_bit,
-                                                               self.convbn_scaling_factor)
-                    if self.quantize_bias:
-                        bias_scaling_factor = self.convbn_scaling_factor.view(1, -1) * pre_act_scaling_factor.view(1,-1)
-                        self.bias_integer = self.weight_function(scaled_bias, self.bias_bit, bias_scaling_factor)
-                    self.convbn_scaled_bias = scaled_bias
-                else:
-                    raise Exception('For weight, we only support symmetric quantization.')
+        return x, scaling_factor
 
-            pre_act_scaling_factor = pre_act_scaling_factor.view(1, -1, 1, 1)
-            x_int = x / pre_act_scaling_factor
-            correct_output_scale = bias_scaling_factor.view(1, -1, 1, 1)
-
-            return (F.conv2d(x_int, self.weight_integer, self.bias_integer, self.conv.stride, self.conv.padding,
-                             self.conv.dilation, self.conv.groups) * correct_output_scale, self.convbn_scaling_factor)
 class InProjector(object):
     def __init__(self,weight,bias,in_features="neveruse",out_features='neveruse'):
         self.weight = weight
@@ -248,12 +247,6 @@ class QuantMultiheadAttention(nn.Module):
         self.in_proj_k.set_param(kProjector)
         self.in_proj_v.set_param(vProjector)
         self.out_proj.set_param(getattr(MHSA,'out_proj'))
-        # self.register_buffer('in_proj_weight_scaling_factor', torch.zeros(1)) ## consider other settings?
-        # self.in_proj_weight = Parameter(MHSA.in_proj_weight.data.clone())
-        # self.register_buffer('in_proj_weight_integer', torch.zeros_like(self.in_proj_weight, dtype=torch.int8))
-        # self.register_buffer('in_proj_bias_scaling_factor', torch.zeros(1))
-        # self.in_proj_bias = Parameter(MHSA.in_proj_bias.data.clone())
-        # self.register_buffer('in_proj_bias_integer', torch.zeros_like(self.in_proj_weight, dtype=torch.int8))
 
     def assemble_qkv_projector(self,in_proj_weight,in_proj_bias):
         # This is inline in_proj function with in_proj_weight and in_proj_bias
@@ -282,7 +275,6 @@ class QuantMultiheadAttention(nn.Module):
         vProjector = InProjector(_w,_b,self.embed_dim,self.embed_dim)
         return (qProjector,kProjector,vProjector)
     def forward(self, query, key, value,
-
                 key_padding_mask=None,
                 need_weights=True, attn_mask=None, pre_act_scaling_factor=None):
         # if type(x) is tuple:
@@ -328,7 +320,7 @@ def multi_head_attention_forward_SLIM(self_arg,
                                  k_proj_weight=None,              # type: Optional[Tensor]
                                  v_proj_weight=None,              # type: Optional[Tensor]
                                  static_k=None,                   # type: Optional[Tensor]
-                                 static_v=None                    # type: Optional[Tensor]
+                                 static_v=None,                   # type: Optional[Tensor]
                                  ):
     """
     pytorch source code with modification
@@ -414,11 +406,17 @@ def multi_head_attention_forward_SLIM(self_arg,
 
     if add_zero_attn:
         raise NotImplementedError
-
-    q, q_act_scaling_factor = self_arg.quant_query_aft_proj(q)
-    q_int = q/q_act_scaling_factor
-    k, k_act_scaling_factor = self_arg.quant_key_aft_proj(k)
-    k_int = k/k_act_scaling_factor
+    QUANT_BF_AFT_SOFT = False#self_arg.quant_softmax
+    if QUANT_BF_AFT_SOFT:
+        q, q_act_scaling_factor = self_arg.quant_query_aft_proj(q)
+        q_int = q/q_act_scaling_factor
+        k, k_act_scaling_factor = self_arg.quant_key_aft_proj(k)
+        k_int = k/k_act_scaling_factor
+    else:
+        q_int = q
+        k_int = k
+        q_act_scaling_factor = 1.
+        k_act_scaling_factor = 1.
     attn_output_weights = torch.bmm(q_int, k_int.transpose(1, 2))*q_act_scaling_factor*k_act_scaling_factor
     assert list(attn_output_weights.size()) == [bsz * num_heads, tgt_len, src_len]
 
@@ -434,14 +432,21 @@ def multi_head_attention_forward_SLIM(self_arg,
         )
         attn_output_weights = attn_output_weights.view(bsz * num_heads, tgt_len, src_len)
 
-    attn_output_weights = F.softmax(
-        attn_output_weights, dim=-1)
+    attn_output_weights = F.softmax(attn_output_weights, dim=-1)
     attn_output_weights = F.dropout(attn_output_weights, p=dropout_p, training=training)
 
-    v, v_act_scaling_factor = self_arg.quant_value_aft_proj(v)
-    attn_output_weights, attn_act_scaling_factor = self_arg.quant_attn_output_weights_aft_softmax(attn_output_weights)
+    if QUANT_BF_AFT_SOFT:
+        v, v_act_scaling_factor = self_arg.quant_value_aft_proj(v)
+        attn_output_weights, attn_act_scaling_factor = self_arg.quant_attn_output_weights_aft_softmax(attn_output_weights)
+    else:
+        attn_act_scaling_factor = 1.
+        v_act_scaling_factor = 1.
+        # v = v
+        # attn_output_weights = attn_output_weights
+
     attn_output = torch.bmm(attn_output_weights/attn_act_scaling_factor,
                         v/v_act_scaling_factor) *v_act_scaling_factor*attn_act_scaling_factor
+
     assert list(attn_output.size()) == [bsz * num_heads, tgt_len, head_dim]
     attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, embed_dim)
     # attn_output = linear(attn_output, out_proj_weight, out_proj_bias)
@@ -455,26 +460,116 @@ def multi_head_attention_forward_SLIM(self_arg,
     else:
         return attn_output, None
 
+class Q_TransformerDecoderLayer(nn.Module):
+    def __init__(self,decoder_layer):
+        super().__init__()
+        self.normalize_before = decoder_layer.normalize_before
 
+        self_attn = getattr(decoder_layer, 'self_attn')
+        multihead_attn = getattr(decoder_layer,'multihead_attn')
+        self.quant_self_attn = QuantMultiheadAttention()
+        self.quant_self_attn.set_param(self_attn)
+        self.quant_multihead_attn = QuantMultiheadAttention()
+        self.quant_multihead_attn.set_param(multihead_attn)
 
+        linear1 = getattr(decoder_layer,'linear1')
+        linear2 = getattr(decoder_layer,'linear2')
+        self.quant_act1 = QuantAct()
+        self.quant_linear1 = QuantLinear()
+        self.quant_linear1.set_param(linear1)
+        self.quant_act2 = QuantAct()
+        self.quant_linear2 = QuantLinear()
+        self.quant_linear2.set_param(linear2)
+
+        self.dropout = nn.Dropout(getattr(decoder_layer, 'dropout').p)
+        self.dropout1 = nn.Dropout(getattr(decoder_layer, 'dropout1').p)
+        self.dropout2 = nn.Dropout(getattr(decoder_layer, 'dropout2').p)
+        self.dropout3 = nn.Dropout(getattr(decoder_layer, 'dropout3').p)
+
+        norm1 = getattr(decoder_layer,'norm1')
+        norm2 = getattr(decoder_layer,'norm2')
+        norm3 = getattr(decoder_layer,'norm3')
+        self.quant_norm1 = norm1
+        self.quant_norm2 = norm2
+        self.quant_norm3 = norm3
+
+        self.activation = getattr(decoder_layer,'activation')
+    def with_pos_embed(self, tensor, pos: Optional[Tensor]):
+        return tensor if pos is None else tensor + pos
+    def forward(self, tgt, memory,
+                 tgt_mask: Optional[Tensor] = None,
+                 memory_mask: Optional[Tensor] = None,
+                 tgt_key_padding_mask: Optional[Tensor] = None,
+                 memory_key_padding_mask: Optional[Tensor] = None,
+                 pos: Optional[Tensor] = None,
+                 query_pos: Optional[Tensor] = None):
+        if self.normalize_before:
+            raise NotImplementedError
+        q = k = self.with_pos_embed(tgt, query_pos)
+        tgt2 = self.quant_self_attn(q, k, value=tgt, attn_mask=tgt_mask,
+                              key_padding_mask=tgt_key_padding_mask)[0]
+        tgt = tgt + self.dropout1(tgt2)
+        tgt = self.quant_norm1(tgt)
+        tgt2 = self.quant_multihead_attn(query=self.with_pos_embed(tgt, query_pos),
+                                   key=self.with_pos_embed(memory, pos),
+                                   value=memory, attn_mask=memory_mask,
+                                   key_padding_mask=memory_key_padding_mask)[0]
+        tgt = tgt + self.dropout2(tgt2)
+        tgt = self.quant_norm2(tgt)
+        x, act_scaling_factor = self.quant_act1(tgt)
+        x = self.dropout(self.activation(self.quant_linear1(x,act_scaling_factor)))
+        x, act_scaling_factor = self.quant_act2(x)
+        tgt2 = self.quant_linear2(x, act_scaling_factor)
+        tgt = tgt + self.dropout3(tgt2)
+        tgt = self.quant_norm3(tgt)
+        return tgt
 
 class Q_TransformerEncoderLayer(nn.Module):
-    def __init__(self, model):
+    def __init__(self,encoder_layer):
         super().__init__()
-        self_attn = getattr(model,"self_attn")
-        linear1 = getattr(model, 'linear1')
-        self.quant_self_attn = (None)
-        self.linear1 = QuantLinear()
-        self.linear1.set_param()
-        dropout = nn.Dropout(p)
-        linear2 = getattr(model, 'linear2')
-        self.linear1 = QuantLinear()
-        self.linear1.set_param()
+        self.normalize_before = encoder_layer.normalize_before
+        self_attn = getattr(encoder_layer,"self_attn")
+        self.quant_self_attn = QuantMultiheadAttention()
+        self.quant_self_attn.set_param(self_attn)
+
+        linear1 = getattr(encoder_layer, 'linear1')
+        linear2 = getattr(encoder_layer, 'linear2')
+        self.quant_linear1 = QuantLinear()
+        self.quant_linear1.set_param(linear1)
+        self.quant_linear2 = QuantLinear()
+        self.quant_linear2.set_param(linear2)
+
+        self.dropout = nn.Dropout(getattr(encoder_layer, 'dropout').p)
+        self.dropout1 = nn.Dropout(getattr(encoder_layer, 'dropout1').p)
+        self.dropout2 = nn.Dropout(getattr(encoder_layer, 'dropout2').p)
+
+        norm1 = getattr(encoder_layer, 'norm1')
+        norm2 = getattr(encoder_layer, 'norm2')
+        self.quant_norm1 = norm1
+        self.quant_norm2 = norm2
+
         self.quant_act1 = QuantAct()
-        self.norm1 = QuantLayerNorm()
         self.quant_act2 = QuantAct()
-        self.norm2 = QuantLayerNorm()
-        dropout1 = nn.Dropout(p)
-        dropout2 = nn.Dropout(p)
-    def forward(self,x):
-        pass
+        self.activation = getattr(encoder_layer, 'activation')
+    def with_pos_embed(self, tensor, pos: Optional[Tensor]):
+        return tensor if pos is None else tensor + pos
+    def forward(self,src,
+                src_mask: Optional[Tensor] = None,
+                src_key_padding_mask: Optional[Tensor] = None,
+                pos: Optional[Tensor] = None):
+        if self.normalize_before:
+            raise NotImplementedError
+        q = k = self.with_pos_embed(src, pos)
+        src2 = self.quant_self_attn(q, k, value=src, attn_mask=src_mask,
+                              key_padding_mask=src_key_padding_mask)[0]
+        src = src + self.dropout1(src2)
+        src = self.quant_norm1(src)
+        src, act_scaling_factor = self.quant_act1(src)
+        x = self.quant_linear1(src, act_scaling_factor)
+        x = self.activation(x)
+        x = self.dropout(x)
+        x, act_scaling_factor = self.quant_act2(x)
+        src2 = self.quant_linear2(x, act_scaling_factor)
+        src = src + self.dropout2(src2)
+        src = self.quant_norm2(src)
+        return src

@@ -15,9 +15,9 @@ import sys
 sys.path.append('../../../detr')
 from util.misc import NestedTensor, is_main_process
 
-class Q_ResNet18_detr(nn.Module):
+class Q_ResNet101_detr(nn.Module):
     """
-        Quantized backbone(ResNet18) model of detr.
+        Quantized backbone(ResNet101) model of detr.
     """
     def __init__(self, model):
         super().__init__()
@@ -25,39 +25,35 @@ class Q_ResNet18_detr(nn.Module):
         body = getattr(model, 'body')
 
         self.quant_input = QuantAct()
-        self.quant_init_block_convbn = QuantBnConv2d()
-        self.quant_init_block_convbn.set_param(body.conv1, body.bn1)
+        self.quant_init_convbn = QuantBnConv2d()
+        self.quant_init_convbn.set_param(body.conv1, body.bn1)
 
         self.quant_act_int32 = QuantAct()
 
         self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.act = nn.ReLU()
 
-        self.channel = [2, 2, 2, 2]
+        self.channel = [3, 4, 23, 3]
 
         for layer_num in range(0, 4):
             layer = getattr(body, "layer{}".format(layer_num + 1))
             for unit_num in range(0, self.channel[layer_num]):
                 unit = getattr(layer, "{}".format(unit_num))
-                quant_unit = Q_ResBlockBn_detr()
+                quant_unit = Q_ResUnitBn_detr()
                 quant_unit.set_param(unit)
                 setattr(self, f"stage{layer_num + 1}.unit{unit_num + 1}", quant_unit)
 
     def forward(self, x):
-        # print('type(x):',type(x))
         tensors, mask = x.decompose()
         x = tensors
         x, act_scaling_factor = self.quant_input(x)
 
-        x, weight_scaling_factor = self.quant_init_block_convbn(x, act_scaling_factor)
+        x, weight_scaling_factor = self.quant_init_convbn(x, act_scaling_factor)
 
         x = self.pool(x)
         x, act_scaling_factor = self.quant_act_int32(x, act_scaling_factor, weight_scaling_factor)
 
         x = self.act(x)
-        # print("X:",x)
-        # print(x/act_scaling_factor.cuda())
-        # raise NotImplementedError
 
         for stage_num in range(0, 4):
             for unit_num in range(0, self.channel[stage_num]):
@@ -70,10 +66,9 @@ class Q_ResNet18_detr(nn.Module):
         x = NestedTensor((x,act_scaling_factor), mask)
         return x
 
-
 class Q_ResNet18(nn.Module):
     """
-        Quantized ResNet18 model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
+        Quantized ResNet50 model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
     """
     def __init__(self, model):
         super().__init__()
@@ -186,7 +181,7 @@ class Q_ResNet50_detr(nn.Module):
         x = NestedTensor((x,act_scaling_factor), mask)
         return x
 
-    
+
 class Q_ResNet50(nn.Module):
     """
         Quantized ResNet50 model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
@@ -247,56 +242,6 @@ class Q_ResNet50(nn.Module):
 
         return x
 
-class Q_ResNet101_detr(nn.Module):
-    """
-        Quantized backbone(ResNet101) model of detr.
-    """
-    def __init__(self, model):
-        super().__init__()
-
-        body = getattr(model, 'body')
-
-        self.quant_input = QuantAct()
-        self.quant_init_convbn = QuantBnConv2d()
-        self.quant_init_convbn.set_param(body.conv1, body.bn1)
-
-        self.quant_act_int32 = QuantAct()
-
-        self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.act = nn.ReLU()
-
-        self.channel = [3, 4, 23, 3]
-
-        for layer_num in range(0, 4):
-            layer = getattr(body, "layer{}".format(layer_num + 1))
-            for unit_num in range(0, self.channel[layer_num]):
-                unit = getattr(layer, "{}".format(unit_num))
-                quant_unit = Q_ResUnitBn_detr()
-                quant_unit.set_param(unit)
-                setattr(self, f"stage{layer_num + 1}.unit{unit_num + 1}", quant_unit)
-
-    def forward(self, x):
-        tensors, mask = x.decompose()
-        x = tensors
-        x, act_scaling_factor = self.quant_input(x)
-
-        x, weight_scaling_factor = self.quant_init_convbn(x, act_scaling_factor)
-
-        x = self.pool(x)
-        x, act_scaling_factor = self.quant_act_int32(x, act_scaling_factor, weight_scaling_factor)
-
-        x = self.act(x)
-
-        for stage_num in range(0, 4):
-            for unit_num in range(0, self.channel[stage_num]):
-                tmp_func = getattr(self, f"stage{stage_num+1}.unit{unit_num+1}")
-                x, act_scaling_factor = tmp_func(x, act_scaling_factor)
-        # mask
-        m = mask
-        assert m is not None
-        mask = F.interpolate(m[None].float(), size=x.shape[-2:]).to(torch.bool)[0]
-        x = NestedTensor((x,act_scaling_factor), mask)
-        return x
 
 class Q_ResNet101(nn.Module):
     """
@@ -485,60 +430,7 @@ class Q_ResUnitBn_detr(nn.Module):
 
         return x, act_scaling_factor
 
-class Q_ResBlockBn_detr(nn.Module):
-    """
-        Quantized ResNet block with residual path.
-    """
-    def __init__(self):
-        super(Q_ResBlockBn_detr, self).__init__()
 
-    def set_param(self, unit):
-        self.resize_identity = (unit.__dict__.get("downsample",True) is True)
-
-        self.quant_act = QuantAct()
-
-        convbn1 = unit
-        self.quant_convbn1 = QuantBnConv2d()
-        self.quant_convbn1.set_param(convbn1.conv1, convbn1.bn1)
-        self.quant_act1 = QuantAct()
-
-        convbn2 = unit
-        self.quant_convbn2 = QuantBnConv2d()
-        self.quant_convbn2.set_param(convbn2.conv2, convbn2.bn2)
-
-        if self.resize_identity:
-            self.quant_identity_convbn = QuantBnConv2d()
-            self.quant_identity_convbn.set_param(getattr(unit.downsample,"0"), getattr(unit.downsample,"1"))
-
-        self.quant_act_int32 = QuantAct()
-
-    def forward(self, x, scaling_factor_int32=None):
-        # forward using the quantized modules
-        if self.resize_identity:
-            x, act_scaling_factor = self.quant_act(x, scaling_factor_int32)
-            identity_act_scaling_factor = act_scaling_factor.clone()
-            identity, identity_weight_scaling_factor = self.quant_identity_convbn(x, act_scaling_factor)
-        else:
-            identity = x
-            x, act_scaling_factor = self.quant_act(x, scaling_factor_int32)
-
-        x, weight_scaling_factor = self.quant_convbn1(x, act_scaling_factor)
-        x = nn.ReLU()(x)
-        x, act_scaling_factor = self.quant_act1(x, act_scaling_factor, weight_scaling_factor)
-
-        x, weight_scaling_factor = self.quant_convbn2(x, act_scaling_factor)
-
-        x = x + identity
-
-        if self.resize_identity:
-            x, act_scaling_factor = self.quant_act_int32(x, act_scaling_factor, weight_scaling_factor, identity, identity_act_scaling_factor, identity_weight_scaling_factor)
-        else:
-            x, act_scaling_factor = self.quant_act_int32(x, act_scaling_factor, weight_scaling_factor, identity, scaling_factor_int32, None)
-
-        x = nn.ReLU()(x)
-
-        return x, act_scaling_factor
-    
 class Q_ResBlockBn(nn.Module):
     """
         Quantized ResNet block with residual path.
