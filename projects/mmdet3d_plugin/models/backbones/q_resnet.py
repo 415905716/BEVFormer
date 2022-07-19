@@ -2,69 +2,12 @@
     Quantized ResNet for ImageNet-1K, implemented in PyTorch.
     Original paper: 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
 """
-
-import torch
+from mmdet.models.builder import BACKBONES
+import torch.nn.functional as F
 import torch.nn as nn
-import copy
-from ..quantization_utils.quant_modules import *
-from pytorchcv.models.common import ConvBlock
-from pytorchcv.models.shufflenetv2 import ShuffleUnit, ShuffleInitBlock
-import time
-import logging
-import sys
-sys.path.append('../../../detr')
-#from util.misc import NestedTensor, is_main_process
+from mmcv.runner import BaseModule
+from .quantization_utils.quant_modules import *
 
-class Q_ResNet101_detr(nn.Module):
-    """
-        Quantized backbone(ResNet101) model of detr.
-    """
-    def __init__(self, model):
-        super().__init__()
-
-        body = getattr(model, 'body')
-
-        self.quant_input = QuantAct()
-        self.quant_init_convbn = QuantBnConv2d()
-        self.quant_init_convbn.set_param(body.conv1, body.bn1)
-
-        self.quant_act_int32 = QuantAct()
-
-        self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.act = nn.ReLU()
-
-        self.channel = [3, 4, 23, 3]
-
-        for layer_num in range(0, 4):
-            layer = getattr(body, "layer{}".format(layer_num + 1))
-            for unit_num in range(0, self.channel[layer_num]):
-                unit = getattr(layer, "{}".format(unit_num))
-                quant_unit = Q_ResUnitBn_detr()
-                quant_unit.set_param(unit)
-                setattr(self, f"stage{layer_num + 1}.unit{unit_num + 1}", quant_unit)
-
-    def forward(self, x):
-        tensors, mask = x.decompose()
-        x = tensors
-        x, act_scaling_factor = self.quant_input(x)
-
-        x, weight_scaling_factor = self.quant_init_convbn(x, act_scaling_factor)
-
-        x = self.pool(x)
-        x, act_scaling_factor = self.quant_act_int32(x, act_scaling_factor, weight_scaling_factor)
-
-        x = self.act(x)
-
-        for stage_num in range(0, 4):
-            for unit_num in range(0, self.channel[stage_num]):
-                tmp_func = getattr(self, f"stage{stage_num+1}.unit{unit_num+1}")
-                x, act_scaling_factor = tmp_func(x, act_scaling_factor)
-        # mask
-        m = mask
-        assert m is not None
-        mask = F.interpolate(m[None].float(), size=x.shape[-2:]).to(torch.bool)[0]
-        x = NestedTensor((x,act_scaling_factor), mask)
-        return x
 
 class Q_ResNet18(nn.Module):
     """
@@ -126,63 +69,8 @@ class Q_ResNet18(nn.Module):
 
         return x
 
-class Q_ResNet50_detr(nn.Module):
-    """
-        Quantized backbone(ResNet50) model of detr.
-    """
-    def __init__(self, model):
-        super().__init__()
-
-        body = getattr(model, 'body')
-
-        self.quant_input = QuantAct()
-        self.quant_init_convbn = QuantBnConv2d()
-        self.quant_init_convbn.set_param(body.conv1, body.bn1)
-
-        self.quant_act_int32 = QuantAct()
-
-        self.pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.act = nn.ReLU()
-
-        self.channel = [3, 4, 6, 3]
-
-        for layer_num in range(0, 4):
-            layer = getattr(body, "layer{}".format(layer_num + 1))
-            for unit_num in range(0, self.channel[layer_num]):
-                unit = getattr(layer, "{}".format(unit_num))
-                quant_unit = Q_ResUnitBn_detr()
-                quant_unit.set_param(unit)
-                setattr(self, f"stage{layer_num + 1}.unit{unit_num + 1}", quant_unit)
-
-    def forward(self, x):
-        # print('type(x):',type(x))
-        tensors, mask = x.decompose()
-        x = tensors
-        x, act_scaling_factor = self.quant_input(x)
-
-        x, weight_scaling_factor = self.quant_init_convbn(x, act_scaling_factor)
-
-        x = self.pool(x)
-        x, act_scaling_factor = self.quant_act_int32(x, act_scaling_factor, weight_scaling_factor)
-
-        x = self.act(x)
-        # print("X:",x)
-        # print(x/act_scaling_factor.cuda())
-        # raise NotImplementedError
-
-        for stage_num in range(0, 4):
-            for unit_num in range(0, self.channel[stage_num]):
-                tmp_func = getattr(self, f"stage{stage_num+1}.unit{unit_num+1}")
-                x, act_scaling_factor = tmp_func(x, act_scaling_factor)
-        # mask
-        m = mask
-        assert m is not None
-        mask = F.interpolate(m[None].float(), size=x.shape[-2:]).to(torch.bool)[0]
-        x = NestedTensor((x,act_scaling_factor), mask)
-        return x
-
-
-class Q_ResNet50(nn.Module):
+@BACKBONES.register_module(name='Q_ResNet50', force=True)
+class Q_ResNet50(BaseModule):
     """
         Quantized ResNet50 model from 'Deep Residual Learning for Image Recognition,' https://arxiv.org/abs/1512.03385.
     """

@@ -1,5 +1,6 @@
 
 from collections import OrderedDict
+import warnings
 from mmcv.runner import BaseModule
 from mmdet.models.builder import BACKBONES
 import torch
