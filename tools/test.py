@@ -6,6 +6,7 @@
 import argparse
 import mmcv
 import os
+from mmdet3d.models.backbones.q_resnet import Q_ResNet50
 import torch
 import warnings
 from mmcv import Config, DictAction
@@ -23,6 +24,8 @@ from projects.mmdet3d_plugin.bevformer.apis.test import custom_multi_gpu_test
 from mmdet.datasets import replace_ImageToTensor
 import time
 import os.path as osp
+
+from tensorboardX import SummaryWriter
 
 
 def parse_args():
@@ -109,7 +112,6 @@ def parse_args():
 
 def main():
     args = parse_args()
-
     assert args.out or args.eval or args.format_only or args.show \
         or args.show_dir, \
         ('Please specify at least one operation (save/eval/format/show the '
@@ -205,7 +207,9 @@ def main():
     fp16_cfg = cfg.get('fp16', None)
     if fp16_cfg is not None:
         wrap_fp16_model(model)
-    checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
+    checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu',strict=False)
+    # print(model)
+    print("==============================================successfully load_checkpoint=============================================================")
     if args.fuse_conv_bn:
         model = fuse_conv_bn(model)
     # old versions did not save class info in checkpoints, this walkaround is
@@ -256,6 +260,15 @@ def main():
             eval_kwargs.update(dict(metric=args.eval, **kwargs))
 
             print(dataset.evaluate(outputs, **eval_kwargs))
+    
+    # tensorboard summarywriter
+    
+    writer = SummaryWriter('tensorboard/')       
+    print(model) 
+    for param in enumerate(model.named_parameters()):
+        # import pdb; pdb.set_trace()
+        if str(param[1][0]).endswith('weight'):
+            writer.add_histogram(str(param[1][0]), param[1][1], 0)
 
 
 if __name__ == '__main__':

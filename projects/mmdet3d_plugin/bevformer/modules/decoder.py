@@ -5,7 +5,7 @@
 # ---------------------------------------------
 
 from mmcv.ops.multi_scale_deform_attn import multi_scale_deformable_attn_pytorch
-import mmcv
+from mmcv.cnn import Linear_Q
 import cv2 as cv
 import copy
 import warnings
@@ -198,12 +198,18 @@ class CustomMSDeformableAttention(BaseModule):
         self.num_levels = num_levels
         self.num_heads = num_heads
         self.num_points = num_points
-        self.sampling_offsets = nn.Linear(
+        # self.sampling_offsets = nn.Linear(
+        #     embed_dims, num_heads * num_levels * num_points * 2)
+        # self.attention_weights = nn.Linear(embed_dims,
+        #                                    num_heads * num_levels * num_points)
+        # self.value_proj = nn.Linear(embed_dims, embed_dims)
+        # self.output_proj = nn.Linear(embed_dims, embed_dims)
+        self.sampling_offsets = Linear_Q(
             embed_dims, num_heads * num_levels * num_points * 2)
-        self.attention_weights = nn.Linear(embed_dims,
+        self.attention_weights = Linear_Q(embed_dims,
                                            num_heads * num_levels * num_points)
-        self.value_proj = nn.Linear(embed_dims, embed_dims)
-        self.output_proj = nn.Linear(embed_dims, embed_dims)
+        self.value_proj = Linear_Q(embed_dims, embed_dims)
+        self.output_proj = Linear_Q(embed_dims, embed_dims)
         self.init_weights()
 
     def init_weights(self):

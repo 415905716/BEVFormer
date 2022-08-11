@@ -10,7 +10,7 @@ from mmcv.ops.multi_scale_deform_attn import multi_scale_deformable_attn_pytorch
 import warnings
 import torch
 import torch.nn as nn
-from mmcv.cnn import xavier_init, constant_init
+from mmcv.cnn import xavier_init, constant_init, Linear_Q, Linear_Q_tensorboard
 from mmcv.cnn.bricks.registry import ATTENTION
 import math
 from mmcv.runner.base_module import BaseModule, ModuleList, Sequential
@@ -97,13 +97,20 @@ class Q_TemporalSelfAttention(BaseModule):
         self.num_heads = num_heads
         self.num_points = num_points
         self.num_bev_queue = num_bev_queue
-        self.sampling_offsets = nn.Linear(
+        # self.sampling_offsets = nn.Linear(
+        #     embed_dims*self.num_bev_queue, num_bev_queue*num_heads * num_levels * num_points * 2)
+        
+        # self.attention_weights = nn.Linear(embed_dims*self.num_bev_queue,
+        #                                    num_bev_queue*num_heads * num_levels * num_points)
+        # self.value_proj = nn.Linear(embed_dims, embed_dims)
+        # self.output_proj = nn.Linear(embed_dims, embed_dims)
+        self.sampling_offsets = Linear_Q(
             embed_dims*self.num_bev_queue, num_bev_queue*num_heads * num_levels * num_points * 2)
         
-        self.attention_weights = nn.Linear(embed_dims*self.num_bev_queue,
+        self.attention_weights = Linear_Q_tensorboard(embed_dims*self.num_bev_queue,
                                            num_bev_queue*num_heads * num_levels * num_points)
-        self.value_proj = nn.Linear(embed_dims, embed_dims)
-        self.output_proj = nn.Linear(embed_dims, embed_dims)
+        self.value_proj = Linear_Q(embed_dims, embed_dims)
+        self.output_proj = Linear_Q(embed_dims, embed_dims)
         self.init_weights()
 
     def init_weights(self):
@@ -345,12 +352,18 @@ class TemporalSelfAttention(BaseModule):
         self.num_heads = num_heads
         self.num_points = num_points
         self.num_bev_queue = num_bev_queue
-        self.sampling_offsets = nn.Linear(
+        # self.sampling_offsets = nn.Linear(
+        #     embed_dims*self.num_bev_queue, num_bev_queue*num_heads * num_levels * num_points * 2)
+        # self.attention_weights = nn.Linear(embed_dims*self.num_bev_queue,
+        #                                    num_bev_queue*num_heads * num_levels * num_points)
+        # self.value_proj = nn.Linear(embed_dims, embed_dims)
+        # self.output_proj = nn.Linear(embed_dims, embed_dims)
+        self.sampling_offsets = Linear_Q(
             embed_dims*self.num_bev_queue, num_bev_queue*num_heads * num_levels * num_points * 2)
-        self.attention_weights = nn.Linear(embed_dims*self.num_bev_queue,
+        self.attention_weights = Linear_Q(embed_dims*self.num_bev_queue,
                                            num_bev_queue*num_heads * num_levels * num_points)
-        self.value_proj = nn.Linear(embed_dims, embed_dims)
-        self.output_proj = nn.Linear(embed_dims, embed_dims)
+        self.value_proj = Linear_Q(embed_dims, embed_dims)
+        self.output_proj = Linear_Q(embed_dims, embed_dims)
         self.init_weights()
 
     def init_weights(self):

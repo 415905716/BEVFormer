@@ -9,7 +9,7 @@ import time
 import torch
 import warnings
 from mmcv import Config, DictAction
-from mmcv.runner import get_dist_info, init_dist, wrap_fp16_model
+from mmcv.runner import get_dist_info, init_dist, wrap_fp16_model #change 0
 from os import path as osp
 
 from mmdet import __version__ as mmdet_version
@@ -128,7 +128,7 @@ def main():
                 print(_module_path)
                 plg_lib = importlib.import_module(_module_path)
             
-            from projects.mmdet3d_plugin.bevformer.apis import custom_train_model
+            from projects.mmdet3d_plugin.bevformer.apis import custom_train_model #change 1
     # set cudnn_benchmark
     if cfg.get('cudnn_benchmark', False):
         torch.backends.cudnn.benchmark = True
@@ -142,7 +142,6 @@ def main():
         cfg.work_dir = osp.join('./work_dirs',
                                 osp.splitext(osp.basename(args.config))[0])
     #if args.resume_from is not None:
-
     if args.resume_from is not None and osp.isfile(args.resume_from): 
         cfg.resume_from = args.resume_from
 
@@ -151,14 +150,14 @@ def main():
     else:
         cfg.gpu_ids = range(1) if args.gpus is None else range(args.gpus)
     if digit_version(TORCH_VERSION) != digit_version('1.8.1'):
-        cfg.optimizer['type'] = 'AdamW'
+        cfg.optimizer['type'] = 'AdamW' #change 2
     if args.autoscale_lr:
         # apply the linear scaling rule (https://arxiv.org/abs/1706.02677)
         cfg.optimizer['lr'] = cfg.optimizer['lr'] * len(cfg.gpu_ids) / 8
 
     # init distributed env first, since logger depends on the dist info.
     if args.launcher == 'none':
-        assert False, 'DOT NOT SUPPORT!!!'
+        assert False, 'DOT NOT SUPPORT!!!' #change 3
         distributed = False
     else:
         distributed = True
@@ -215,7 +214,7 @@ def main():
         test_cfg=cfg.get('test_cfg'))
     model.init_weights()
 
-    eval_model_config = copy.deepcopy(cfg.model)
+    eval_model_config = copy.deepcopy(cfg.model) #change 4 line 217~229
     eval_model = build_model(
         eval_model_config,
         train_cfg=cfg.get('train_cfg'),
@@ -230,7 +229,7 @@ def main():
 
     logger.info(f'Model:\n{model}')
     from projects.mmdet3d_plugin.datasets import custom_build_dataset
-    datasets = [custom_build_dataset(cfg.data.train)]
+    datasets = [custom_build_dataset(cfg.data.train)] #change 5
     if len(cfg.workflow) == 2:
         val_dataset = copy.deepcopy(cfg.data.val)
         # in case we use a dataset wrapper
@@ -242,7 +241,7 @@ def main():
         # which do not affect AP/AR calculation later
         # refer to https://mmdetection3d.readthedocs.io/en/latest/tutorials/customize_runtime.html#customize-workflow  # noqa
         val_dataset.test_mode = False
-        datasets.append(custom_build_dataset(val_dataset))
+        datasets.append(custom_build_dataset(val_dataset)) #change 6
     if cfg.checkpoint_config is not None:
         # save mmdet version, config file content and class names in
         # checkpoints as meta data
@@ -260,7 +259,7 @@ def main():
         model,
         datasets,
         cfg,
-        eval_model=eval_model,
+        eval_model=eval_model, #change 7
         distributed=distributed,
         validate=(not args.no_validate),
         timestamp=timestamp,

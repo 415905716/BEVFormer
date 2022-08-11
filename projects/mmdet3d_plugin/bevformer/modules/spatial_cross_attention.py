@@ -10,7 +10,7 @@ import warnings
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from mmcv.cnn import xavier_init, constant_init
+from mmcv.cnn import xavier_init, constant_init, Linear_Q
 from mmcv.cnn.bricks.registry import (ATTENTION,
                                       TRANSFORMER_LAYER,
                                       TRANSFORMER_LAYER_SEQUENCE)
@@ -64,7 +64,8 @@ class SpatialCrossAttention(BaseModule):
         self.deformable_attention = build_attention(deformable_attention)
         self.embed_dims = embed_dims
         self.num_cams = num_cams
-        self.output_proj = nn.Linear(embed_dims, embed_dims)
+        # self.output_proj = nn.Linear(embed_dims, embed_dims)
+        self.output_proj = Linear_Q(embed_dims, embed_dims)
         self.batch_first = batch_first
         self.init_weight()
 
@@ -242,11 +243,16 @@ class MSDeformableAttention3D(BaseModule):
         self.num_levels = num_levels
         self.num_heads = num_heads
         self.num_points = num_points
-        self.sampling_offsets = nn.Linear(
+        # self.sampling_offsets = nn.Linear(
+        #     embed_dims, num_heads * num_levels * num_points * 2)
+        # self.attention_weights = nn.Linear(embed_dims,
+        #                                    num_heads * num_levels * num_points)
+        # self.value_proj = nn.Linear(embed_dims, embed_dims)
+        self.sampling_offsets = Linear_Q(
             embed_dims, num_heads * num_levels * num_points * 2)
-        self.attention_weights = nn.Linear(embed_dims,
+        self.attention_weights = Linear_Q(embed_dims,
                                            num_heads * num_levels * num_points)
-        self.value_proj = nn.Linear(embed_dims, embed_dims)
+        self.value_proj = Linear_Q(embed_dims, embed_dims)
 
         self.init_weights()
 

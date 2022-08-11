@@ -29,13 +29,16 @@ from mmseg import __version__ as mmseg_version
 
 from mmcv.utils import TORCH_VERSION, digit_version
 
+from torch.utils.tensorboard import SummaryWriter
+
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a detector')
     parser.add_argument('config', help='train config file path')
     parser.add_argument('--work-dir', help='the dir to save logs and models')
     parser.add_argument(
-        '--resume-from', help='the checkpoint file to resume from')
+        '--resume', help='the checkpoint file to resume from')
     parser.add_argument(
         '--no-validate',
         action='store_true',
@@ -101,10 +104,11 @@ def parse_args():
 
 def main():
     args = parse_args()
+    writer = SummaryWriter("/home/zhangyifan/BEVFormer/tensorboard/")
 
     cfg = Config.fromfile(args.config)
     if args.cfg_options is not None:
-        cfg.merge_from_dict(args.cfg_options)
+        cfg.merge_from_dict(args.cfg_options) # 从args更新读取的config文件，args优先级>cfg的优先级,args定义了cfg文件中没有定义的work_dir等参数,还有一部分需要覆盖cfg的参数
     # import modules from string list.
     if cfg.get('custom_imports', None):
         from mmcv.utils import import_modules_from_strings
@@ -148,8 +152,8 @@ def main():
         cfg.work_dir = osp.join('./work_dirs',
                                 osp.splitext(osp.basename(args.config))[0])
     # if args.resume_from is not None:
-    if args.resume_from is not None and osp.isfile(args.resume_from):
-        cfg.resume_from = args.resume_from
+    if args.resume is not None and osp.isfile(args.resume):
+        cfg.resume_from = args.resume
     if args.gpu_ids is not None:
         cfg.gpu_ids = args.gpu_ids
     else:
@@ -168,7 +172,8 @@ def main():
         init_dist(args.launcher, **cfg.dist_params)
         # re-set gpu_ids with distributed training mode
         _, world_size = get_dist_info()
-        cfg.gpu_ids = range(world_size)
+        cfg.gpu_ids = [2,3]
+        # cfg.gpu_ids = range(world_size)
 
     # create work_dir
     mmcv.mkdir_or_exist(osp.abspath(cfg.work_dir))

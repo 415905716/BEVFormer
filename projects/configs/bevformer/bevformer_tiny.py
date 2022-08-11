@@ -80,7 +80,7 @@ model = dict(
         with_box_refine=True,
         as_two_stage=False,
         transformer=dict(
-            type='PerceptionTransformer',
+            type='PerceptionTransformer', #quant_linear_Q
             rotate_prev_bev=True,
             use_shift=True,
             use_can_bus=True,
@@ -95,14 +95,14 @@ model = dict(
                     type='BEVFormerLayer',
                     attn_cfgs=[
                         dict(
-                            type='TemporalSelfAttention',
+                            type='TemporalSelfAttention', #quant_linear_Q
                             embed_dims=_dim_,
                             num_levels=1),
                         dict(
-                            type='SpatialCrossAttention',
+                            type='SpatialCrossAttention', #quant_linear_Q
                             pc_range=point_cloud_range,
                             deformable_attention=dict(
-                                type='MSDeformableAttention3D',
+                                type='MSDeformableAttention3D', #quant_linear_Q
                                 embed_dims=_dim_,
                                 num_points=8,
                                 num_levels=_num_levels_),
@@ -126,7 +126,7 @@ model = dict(
                             num_heads=8,
                             dropout=0.1),
                          dict(
-                            type='CustomMSDeformableAttention',
+                            type='CustomMSDeformableAttention', #quant_linear_Q
                             embed_dims=_dim_,
                             num_levels=1),
                     ],
@@ -255,7 +255,7 @@ lr_config = dict(
     warmup_iters=500,
     warmup_ratio=1.0 / 3,
     min_lr_ratio=1e-3)
-total_epochs = 24
+total_epochs = 48
 evaluation = dict(interval=1, pipeline=test_pipeline)
 
 runner = dict(type='EpochBasedRunner', max_epochs=total_epochs)

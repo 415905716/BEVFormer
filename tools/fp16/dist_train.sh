@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-
+export CUDA_VISIBLE_DEVICES=2,3
 CONFIG=$1
 GPUS=$2
 PORT=${PORT:-28508}

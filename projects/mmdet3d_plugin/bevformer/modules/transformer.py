@@ -7,7 +7,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from mmcv.cnn import xavier_init
+from mmcv.cnn import xavier_init,Linear_Q
 from mmcv.cnn.bricks.transformer import build_transformer_layer_sequence
 from mmcv.runner.base_module import BaseModule
 
@@ -73,11 +73,18 @@ class PerceptionTransformer(BaseModule):
             self.num_feature_levels, self.embed_dims))
         self.cams_embeds = nn.Parameter(
             torch.Tensor(self.num_cams, self.embed_dims))
-        self.reference_points = nn.Linear(self.embed_dims, 3)
+        # self.reference_points = nn.Linear(self.embed_dims, 3)
+        # self.can_bus_mlp = nn.Sequential(
+        #     nn.Linear(18, self.embed_dims // 2),
+        #     nn.ReLU(inplace=True),
+        #     nn.Linear(self.embed_dims // 2, self.embed_dims),
+        #     nn.ReLU(inplace=True),
+        # )
+        self.reference_points = Linear_Q(self.embed_dims, 3)
         self.can_bus_mlp = nn.Sequential(
-            nn.Linear(18, self.embed_dims // 2),
+            Linear_Q(18, self.embed_dims // 2),
             nn.ReLU(inplace=True),
-            nn.Linear(self.embed_dims // 2, self.embed_dims),
+            Linear_Q(self.embed_dims // 2, self.embed_dims),
             nn.ReLU(inplace=True),
         )
         if self.can_bus_norm:
