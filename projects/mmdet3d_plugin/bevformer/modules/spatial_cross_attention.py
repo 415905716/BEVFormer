@@ -49,6 +49,10 @@ class SpatialCrossAttention(BaseModule):
                  dropout=0.1,
                  init_cfg=None,
                  batch_first=False,
+                 
+                 weight_bit=6,
+                 activation_bit=6,
+                 
                  deformable_attention=dict(
                      type='MSDeformableAttention3D',
                      embed_dims=256,
@@ -65,9 +69,14 @@ class SpatialCrossAttention(BaseModule):
         self.embed_dims = embed_dims
         self.num_cams = num_cams
         # self.output_proj = nn.Linear(embed_dims, embed_dims)
-        self.output_proj = Linear_Q(embed_dims, embed_dims)
+        
+        self.weight_bit = weight_bit
+        self.activation_bit = activation_bit
+        self.output_proj = Linear_Q(embed_dims, embed_dims, weight_bit = self.weight_bit, activation_bit = self.activation_bit)
+        
         self.batch_first = batch_first
         self.init_weight()
+        
 
     def init_weight(self):
         """Default initialization for Parameters of Module."""
@@ -211,7 +220,11 @@ class MSDeformableAttention3D(BaseModule):
                  dropout=0.1,
                  batch_first=True,
                  norm_cfg=None,
-                 init_cfg=None):
+                 init_cfg=None,
+                 
+                 weight_bit=6,
+                 activation_bit=6,
+                 ):
         super().__init__(init_cfg)
         if embed_dims % num_heads != 0:
             raise ValueError(f'embed_dims must be divisible by num_heads, '
@@ -221,6 +234,9 @@ class MSDeformableAttention3D(BaseModule):
         self.batch_first = batch_first
         self.output_proj = None
         self.fp16_enabled = False
+        
+        self.weight_bit = weight_bit
+        self.activation_bit = activation_bit
 
         # you'd better set dim_per_head to a power of 2
         # which is more efficient in the CUDA implementation
@@ -249,10 +265,10 @@ class MSDeformableAttention3D(BaseModule):
         #                                    num_heads * num_levels * num_points)
         # self.value_proj = nn.Linear(embed_dims, embed_dims)
         self.sampling_offsets = Linear_Q(
-            embed_dims, num_heads * num_levels * num_points * 2)
+            embed_dims, num_heads * num_levels * num_points * 2, weight_bit = self.weight_bit, activation_bit = self.activation_bit)
         self.attention_weights = Linear_Q(embed_dims,
-                                           num_heads * num_levels * num_points)
-        self.value_proj = Linear_Q(embed_dims, embed_dims)
+                                           num_heads * num_levels * num_points, weight_bit = self.weight_bit, activation_bit = self.activation_bit)
+        self.value_proj = Linear_Q(embed_dims, embed_dims, weight_bit = self.weight_bit, activation_bit = self.activation_bit)
 
         self.init_weights()
 

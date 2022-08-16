@@ -208,7 +208,7 @@ def main():
     if fp16_cfg is not None:
         wrap_fp16_model(model)
     checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu',strict=False)
-    # print(model)
+    print(model)
     print("==============================================successfully load_checkpoint=============================================================")
     if args.fuse_conv_bn:
         model = fuse_conv_bn(model)
@@ -263,12 +263,12 @@ def main():
     
     # tensorboard summarywriter
     
-    writer = SummaryWriter('tensorboard/')       
-    print(model) 
-    for param in enumerate(model.named_parameters()):
+    # writer = SummaryWriter('tensorboard/epoch33/rf_logs')       
+    # print(model) 
+    # for param in enumerate(model.named_parameters()):
         # import pdb; pdb.set_trace()
-        if str(param[1][0]).endswith('weight'):
-            writer.add_histogram(str(param[1][0]), param[1][1], 0)
+        # if str(param[1][0]).endswith('weight'):
+            # writer.add_histogram(str(param[1][0]), param[1][1], 0)
 
 
 if __name__ == '__main__':

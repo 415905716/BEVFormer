@@ -166,7 +166,10 @@ class CustomMSDeformableAttention(BaseModule):
                  dropout=0.1,
                  batch_first=False,
                  norm_cfg=None,
-                 init_cfg=None):
+                 init_cfg=None,
+                 weight_bit=6,
+                 activation_bit=6,
+                 ):
         super().__init__(init_cfg)
         if embed_dims % num_heads != 0:
             raise ValueError(f'embed_dims must be divisible by num_heads, '
@@ -204,12 +207,16 @@ class CustomMSDeformableAttention(BaseModule):
         #                                    num_heads * num_levels * num_points)
         # self.value_proj = nn.Linear(embed_dims, embed_dims)
         # self.output_proj = nn.Linear(embed_dims, embed_dims)
+        self.weight_bit = weight_bit
+        self.activation_bit = activation_bit
+        
+        
         self.sampling_offsets = Linear_Q(
-            embed_dims, num_heads * num_levels * num_points * 2)
+            embed_dims, num_heads * num_levels * num_points * 2, weight_bit = self.weight_bit, activation_bit = self.activation_bit)
         self.attention_weights = Linear_Q(embed_dims,
-                                           num_heads * num_levels * num_points)
-        self.value_proj = Linear_Q(embed_dims, embed_dims)
-        self.output_proj = Linear_Q(embed_dims, embed_dims)
+                                           num_heads * num_levels * num_points, weight_bit = self.weight_bit, activation_bit = self.activation_bit)
+        self.value_proj = Linear_Q(embed_dims, embed_dims, weight_bit = self.weight_bit, activation_bit = self.activation_bit)
+        self.output_proj = Linear_Q(embed_dims, embed_dims, weight_bit = self.weight_bit, activation_bit = self.activation_bit)
         self.init_weights()
 
     def init_weights(self):

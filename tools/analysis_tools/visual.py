@@ -471,7 +471,7 @@ def render_sample_data(
 if __name__ == '__main__':
     nusc = NuScenes(version='v1.0-trainval', dataroot='./data/nuscenes', verbose=True)
     # render_annotation('7603b030b42a4b1caa8c443ccc1a7d52')
-    bevformer_results = mmcv.load('/home/zhangyifan/BEVFormer/test/bevformer_tiny/fp/Mon_Jul_18_15_39_23_2022/pts_bbox/results_nusc.json')
+    bevformer_results = mmcv.load('/home/zhangyifan/BEVFormer/test/bevformer_tiny/Fri_Aug_12_00_14_42_2022/pts_bbox/results_nusc.json')
     sample_token_list = list(bevformer_results['results'].keys())
     for id in range(0, 10):
         render_sample_data(sample_token_list[id], pred_data=bevformer_results, out_path=sample_token_list[id])

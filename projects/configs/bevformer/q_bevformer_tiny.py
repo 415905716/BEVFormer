@@ -85,6 +85,8 @@ model = dict(
             use_shift=True,
             use_can_bus=True,
             embed_dims=_dim_,
+            weight_bit=4,
+            activation_bit=4,
             encoder=dict(
                 type='BEVFormerEncoder',
                 num_layers=3,
@@ -97,15 +99,22 @@ model = dict(
                         dict(
                             type='TemporalSelfAttention', #quant_linear_Q
                             embed_dims=_dim_,
-                            num_levels=1),
+                            num_levels=1,
+                            weight_bit=4,
+                            activation_bit=4,
+                            ),
                         dict(
                             type='SpatialCrossAttention', #quant_linear_Q
                             pc_range=point_cloud_range,
+                            weight_bit=4,
+                            activation_bit=4,
                             deformable_attention=dict(
                                 type='MSDeformableAttention3D', #quant_linear_Q
                                 embed_dims=_dim_,
                                 num_points=8,
-                                num_levels=_num_levels_),
+                                num_levels=_num_levels_,
+                                weight_bit=4,
+                                activation_bit=4,),
                             embed_dims=_dim_,
                         )
                     ],
@@ -128,7 +137,10 @@ model = dict(
                          dict(
                             type='CustomMSDeformableAttention', #quant_linear_Q
                             embed_dims=_dim_,
-                            num_levels=1),
+                            num_levels=1,
+                            weight_bit=4,
+                            activation_bit=4,
+                            ),
                     ],
 
                     feedforward_channels=_ffn_dim_,

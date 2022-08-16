@@ -3,7 +3,7 @@ export CUDA_VISIBLE_DEVICES=2,3
 CONFIG=$1
 CHECKPOINT=$2
 GPUS=$3
-PORT=${PORT:-27666}
+PORT=${PORT:-27456}
 
 PYTHONPATH="$(dirname $0)/..":$PYTHONPATH \
 python -m torch.distributed.launch --nproc_per_node=$GPUS --master_port=$PORT \

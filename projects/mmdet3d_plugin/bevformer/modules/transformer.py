@@ -47,6 +47,10 @@ class PerceptionTransformer(BaseModule):
                  use_can_bus=True,
                  can_bus_norm=True,
                  use_cams_embeds=True,
+                 
+                 weight_bit=6,
+                 activation_bit=6,
+                 
                  rotate_center=[100, 100],
                  **kwargs):
         super(PerceptionTransformer, self).__init__(**kwargs)
@@ -62,10 +66,16 @@ class PerceptionTransformer(BaseModule):
         self.use_can_bus = use_can_bus
         self.can_bus_norm = can_bus_norm
         self.use_cams_embeds = use_cams_embeds
+        
+        self.weight_bit = weight_bit
+        self.activation_bit = activation_bit
 
         self.two_stage_num_proposals = two_stage_num_proposals
+   
         self.init_layers()
         self.rotate_center = rotate_center
+        
+        
 
     def init_layers(self):
         """Initialize layers of the Detr3DTransformer."""
@@ -80,11 +90,12 @@ class PerceptionTransformer(BaseModule):
         #     nn.Linear(self.embed_dims // 2, self.embed_dims),
         #     nn.ReLU(inplace=True),
         # )
-        self.reference_points = Linear_Q(self.embed_dims, 3)
+        
+        self.reference_points = Linear_Q(self.embed_dims, 3, weight_bit = self.weight_bit, activation_bit = self.activation_bit)
         self.can_bus_mlp = nn.Sequential(
-            Linear_Q(18, self.embed_dims // 2),
+            Linear_Q(18, self.embed_dims // 2, weight_bit = self.weight_bit, activation_bit = self.activation_bit),
             nn.ReLU(inplace=True),
-            Linear_Q(self.embed_dims // 2, self.embed_dims),
+            Linear_Q(self.embed_dims // 2, self.embed_dims, weight_bit = self.weight_bit, activation_bit = self.activation_bit),
             nn.ReLU(inplace=True),
         )
         if self.can_bus_norm:
