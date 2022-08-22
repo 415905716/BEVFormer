@@ -6,7 +6,6 @@
 import argparse
 import mmcv
 import os
-from mmdet3d.models.backbones.q_resnet import Q_ResNet50
 import torch
 import warnings
 from mmcv import Config, DictAction
