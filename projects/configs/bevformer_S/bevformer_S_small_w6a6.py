@@ -56,7 +56,9 @@ model = dict(
         frozen_stages=1,
         norm_cfg=dict(type='BN2d', requires_grad=False),
         norm_eval=True,
-        style='pytorch'),
+        style='pytorch',
+        dcn=dict(type='DCNv2', deform_groups=1, fallback_on_stride=False), # original DCNv2 will print log when perform load_state_dict
+        stage_with_dcn=(False, False, True, True),),
     img_neck=dict(
         type='FPN',
         in_channels=[2048],
@@ -81,8 +83,8 @@ model = dict(
             use_shift=True,
             use_can_bus=True,
             embed_dims=_dim_,
-            weight_bit=4,
-            activation_bit=4,
+            weight_bit=6,
+            activation_bit=6,
             encoder=dict(
                 type='BEVFormerEncoder',
                 num_layers=3,
@@ -96,20 +98,20 @@ model = dict(
                             type='TemporalSelfAttention', #quant_linear_Q
                             embed_dims=_dim_,
                             num_levels=1,
-                            weight_bit=4,
-                            activation_bit=4,),
+                            weight_bit=6,
+                            activation_bit=6,),
                         dict(
                             type='SpatialCrossAttention', #quant_linear_Q
                             pc_range=point_cloud_range,
-                            weight_bit=4,
-                            activation_bit=4,
+                            weight_bit=6,
+                            activation_bit=6,
                             deformable_attention=dict(
                                 type='MSDeformableAttention3D', #quant_linear_Q
                                 embed_dims=_dim_,
                                 num_points=8,
                                 num_levels=_num_levels_,
-                                weight_bit=4,
-                                activation_bit=4,),
+                                weight_bit=6,
+                                activation_bit=6,),
                             embed_dims=_dim_,
                         )
                     ],
@@ -133,8 +135,8 @@ model = dict(
                             type='CustomMSDeformableAttention', #quant_linear_Q
                             embed_dims=_dim_,
                             num_levels=1,
-                            weight_bit=4,
-                            activation_bit=4,),
+                            weight_bit=6,
+                            activation_bit=6,),
                     ],
 
                     feedforward_channels=_ffn_dim_,
@@ -215,7 +217,7 @@ test_pipeline = [
 
 data = dict(
     samples_per_gpu=1,
-    workers_per_gpu=4,
+    workers_per_gpu=1,
     train=dict(
         type=dataset_type,
         data_root=data_root,
