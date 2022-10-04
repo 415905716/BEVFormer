@@ -49,11 +49,20 @@ class BEVFormerHead(DETRHead):
                  code_weights=None,
                  bev_h=30,
                  bev_w=30,
-                 **kwargs):
+                 weight_bit=6,
+                 activation_bit=6,
+
+                 **kwargs 
+                 ):
+
 
         self.bev_h = bev_h
         self.bev_w = bev_w
         self.fp16_enabled = False
+
+        #add weight_bit&activation_bit
+        self.weight_bit = weight_bit
+        self.activation_bit = activation_bit
 
         self.with_box_refine = with_box_refine
         self.as_two_stage = as_two_stage
@@ -74,6 +83,9 @@ class BEVFormerHead(DETRHead):
         self.real_w = self.pc_range[3] - self.pc_range[0]
         self.real_h = self.pc_range[4] - self.pc_range[1]
         self.num_cls_fcs = num_cls_fcs - 1
+
+
+
         super(BEVFormerHead, self).__init__(
             *args, transformer=transformer, **kwargs)
         self.code_weights = nn.Parameter(torch.tensor(
@@ -83,17 +95,17 @@ class BEVFormerHead(DETRHead):
         """Initialize classification branch and regression branch of head."""
         cls_branch = []
         for _ in range(self.num_reg_fcs):
-            cls_branch.append(Linear(self.embed_dims, self.embed_dims))
+            cls_branch.append(Linear(self.embed_dims, self.embed_dims, weight_bit = self.weight_bit, activation_bit = self.activation_bit))
             cls_branch.append(nn.LayerNorm(self.embed_dims))
             cls_branch.append(nn.ReLU(inplace=True))
-        cls_branch.append(Linear(self.embed_dims, self.cls_out_channels))
+        cls_branch.append(Linear(self.embed_dims, self.cls_out_channels, weight_bit = self.weight_bit, activation_bit = self.activation_bit))
         fc_cls = nn.Sequential(*cls_branch)
 
         reg_branch = []
         for _ in range(self.num_reg_fcs):
-            reg_branch.append(Linear(self.embed_dims, self.embed_dims))
+            reg_branch.append(Linear(self.embed_dims, self.embed_dims, weight_bit = self.weight_bit, activation_bit = self.activation_bit))
             reg_branch.append(nn.ReLU())
-        reg_branch.append(Linear(self.embed_dims, self.code_size))
+        reg_branch.append(Linear(self.embed_dims, self.code_size, weight_bit = self.weight_bit, activation_bit = self.activation_bit))
         reg_branch = nn.Sequential(*reg_branch)
 
         def _get_clones(module, N):
