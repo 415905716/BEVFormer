@@ -1,10 +1,11 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import argparse
 import json
+from collections import defaultdict
+
+import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
-from collections import defaultdict
-from matplotlib import pyplot as plt
 
 
 def cal_train_time(log_dicts, args):
@@ -16,6 +17,10 @@ def cal_train_time(log_dicts, args):
                 all_times.append(log_dict[epoch]['time'])
             else:
                 all_times.append(log_dict[epoch]['time'][1:])
+        if not all_times:
+            raise KeyError(
+                'Please reduce the log interval in the config so that'
+                'interval is less than iterations of one epoch.')
         all_times = np.array(all_times)
         epoch_ave_time = all_times.mean(-1)
         slowest_epoch = epoch_ave_time.argmax()
@@ -49,44 +54,31 @@ def plot_curve(log_dicts, args):
         epochs = list(log_dict.keys())
         for j, metric in enumerate(metrics):
             print(f'plot curve of {args.json_logs[i]}, metric is {metric}')
-            if metric not in log_dict[epochs[args.interval - 1]]:
+            if metric not in log_dict[epochs[int(args.eval_interval) - 1]]:
+                if 'mAP' in metric:
+                    raise KeyError(
+                        f'{args.json_logs[i]} does not contain metric '
+                        f'{metric}. Please check if "--no-validate" is '
+                        'specified when you trained the model.')
                 raise KeyError(
-                    f'{args.json_logs[i]} does not contain metric {metric}')
+                    f'{args.json_logs[i]} does not contain metric {metric}. '
+                    'Please reduce the log interval in the config so that '
+                    'interval is less than iterations of one epoch.')
 
-            if args.mode == 'eval':
-                if min(epochs) == args.interval:
-                    x0 = args.interval
-                else:
-                    # if current training is resumed from previous checkpoint
-                    # we lost information in early epochs
-                    # `xs` should start according to `min(epochs)`
-                    if min(epochs) % args.interval == 0:
-                        x0 = min(epochs)
-                    else:
-                        # find the first epoch that do eval
-                        x0 = min(epochs) + args.interval - \
-                            min(epochs) % args.interval
-                xs = np.arange(x0, max(epochs) + 1, args.interval)
+            if 'mAP' in metric:
+                xs = []
                 ys = []
-                for epoch in epochs[args.interval - 1::args.interval]:
+                for epoch in epochs:
                     ys += log_dict[epoch][metric]
-
-                # if training is aborted before eval of the last epoch
-                # `xs` and `ys` will have different length and cause an error
-                # check if `ys[-1]` is empty here
-                if not log_dict[epoch][metric]:
-                    xs = xs[:-1]
-
-                ax = plt.gca()
-                ax.set_xticks(xs)
+                    if 'val' in log_dict[epoch]['mode']:
+                        xs.append(epoch)
                 plt.xlabel('epoch')
                 plt.plot(xs, ys, label=legend[i * num_metrics + j], marker='o')
             else:
                 xs = []
                 ys = []
-                num_iters_per_epoch = \
-                    log_dict[epochs[args.interval-1]]['iter'][-1]
-                for epoch in epochs[args.interval - 1::args.interval]:
+                num_iters_per_epoch = log_dict[epochs[0]]['iter'][-2]
+                for epoch in epochs:
                     iters = log_dict[epoch]['iter']
                     if log_dict[epoch]['mode'][-1] == 'val':
                         iters = iters[:-1]
@@ -121,8 +113,18 @@ def add_plot_parser(subparsers):
         '--keys',
         type=str,
         nargs='+',
-        default=['mAP_0.25'],
+        default=['bbox_mAP'],
         help='the metric that you want to plot')
+    parser_plt.add_argument(
+        '--start-epoch',
+        type=str,
+        default='1',
+        help='the epoch that you want to start')
+    parser_plt.add_argument(
+        '--eval-interval',
+        type=str,
+        default='1',
+        help='the eval interval when training')
     parser_plt.add_argument('--title', type=str, help='title of figure')
     parser_plt.add_argument(
         '--legend',
@@ -135,8 +137,6 @@ def add_plot_parser(subparsers):
     parser_plt.add_argument(
         '--style', type=str, default='dark', help='style of plt')
     parser_plt.add_argument('--out', type=str, default=None)
-    parser_plt.add_argument('--mode', type=str, default='train')
-    parser_plt.add_argument('--interval', type=int, default=1)
 
 
 def add_time_parser(subparsers):
@@ -172,8 +172,11 @@ def load_json_logs(json_logs):
     log_dicts = [dict() for _ in json_logs]
     for json_log, log_dict in zip(json_logs, log_dicts):
         with open(json_log, 'r') as log_file:
-            for line in log_file:
+            for i, line in enumerate(log_file):
                 log = json.loads(line.strip())
+                # skip the first training info line
+                if i == 0:
+                    continue
                 # skip lines without `epoch` field
                 if 'epoch' not in log:
                     continue
