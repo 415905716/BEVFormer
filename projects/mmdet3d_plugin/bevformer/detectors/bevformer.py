@@ -42,6 +42,7 @@ class BEVFormer(MVXTwoStageDetector):
                  test_cfg=None,
                  pretrained=None,
                  video_test_mode=False,
+                 init_cfg=None
                  ):
 
         super(BEVFormer,
@@ -49,7 +50,7 @@ class BEVFormer(MVXTwoStageDetector):
                              pts_middle_encoder, pts_fusion_layer,
                              img_backbone, pts_backbone, img_neck, pts_neck,
                              pts_bbox_head, img_roi_head, img_rpn_head,
-                             train_cfg, test_cfg, pretrained)
+                             train_cfg, test_cfg, pretrained, init_cfg)
         self.grid_mask = GridMask(
             True, True, rotate=1, offset=False, ratio=0.5, mode=1, prob=0.7)
         self.use_grid_mask = use_grid_mask
@@ -263,6 +264,18 @@ class BEVFormer(MVXTwoStageDetector):
         self.prev_frame_info['prev_pos'] = tmp_pos
         self.prev_frame_info['prev_angle'] = tmp_angle
         self.prev_frame_info['prev_bev'] = new_prev_bev
+
+        # from tensorboardX import SummaryWriter
+        # import torchvision
+        # writer = SummaryWriter("tensorboard/Visualization/tiny_w6a6_s2/")
+        # img1= img[0].squeeze()
+        # img1_grid=torchvision.utils.make_grid(tensor=img1, nrow=2, padding=10, normalize=False, value_range=None, scale_each=False, pad_value=0)
+        # bev1 = new_prev_bev.squeeze().transpose(0,1).reshape(256,50,50)
+        # for i in range(256):
+        #     writer.add_images(tag='img{}'.format(i), img_tensor=img1_grid[i], dataformats='HW')
+        #     writer.add_images(tag='bev{}'.format(i), img_tensor=bev1[i], dataformats='HW')
+
+        # import pdb; pdb.set_trace()
         return bbox_results
 
     def simple_test_pts(self, x, img_metas, prev_bev=None, rescale=False):
@@ -286,4 +299,16 @@ class BEVFormer(MVXTwoStageDetector):
             img_feats, img_metas, prev_bev, rescale=rescale)
         for result_dict, pts_bbox in zip(bbox_list, bbox_pts):
             result_dict['pts_bbox'] = pts_bbox
+
+        # from tensorboardX import SummaryWriter
+        # import torchvision
+        # writer = SummaryWriter("tensorboard/Visualization/tiny_w6a6_b2/")
+        # img1= img_feats[0].squeeze()
+        # img1_grid=torchvision.utils.make_grid(tensor=img1, nrow=2, padding=10, normalize=False, value_range=None, scale_each=False, pad_value=0)
+        # bev1 = new_prev_bev.squeeze().transpose(0,1).reshape(256,50,50)
+        # for i in range(256):
+        #     writer.add_images(tag='img{}'.format(i), img_tensor=img1_grid[i], dataformats='HW')
+        #     writer.add_images(tag='bev{}'.format(i), img_tensor=bev1[i], dataformats='HW')
+
+        # import pdb; pdb.set_trace()
         return new_prev_bev, bbox_list
