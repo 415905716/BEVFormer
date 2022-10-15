@@ -47,6 +47,8 @@ bev_h_ = 50
 bev_w_ = 50
 queue_length = 3 # each sequence contains `queue_length` frames.
 
+quantize_bit=6
+
 model = dict(
     type='BEVFormer',
     use_grid_mask=True,
@@ -60,7 +62,10 @@ model = dict(
         frozen_stages=1,
         norm_cfg=dict(type='BN', requires_grad=False),
         norm_eval=True,
-        style='pytorch'),
+        style='pytorch',
+        conv_cfg=dict(type='Conv2d',weight_bit=quantize_bit, activation_bit=quantize_bit, full_precision_flag=False, quant_act=True),
+        conv1_cfg=dict(type='Conv2d',weight_bit=8, activation_bit=8, full_precision_flag=False, quant_act=True),
+        ),
     img_neck=dict(
         type='FPN',
         in_channels=[2048],
@@ -68,11 +73,14 @@ model = dict(
         start_level=0,
         add_extra_convs='on_output',
         num_outs=_num_levels_,
-        relu_before_extra_convs=True),
+        relu_before_extra_convs=True,
+        conv_cfg=dict(type='Conv2d', weight_bit=quantize_bit, activation_bit=quantize_bit, full_precision_flag=False, quant_act=True)),
     pts_bbox_head=dict(
-        type='BEVFormerHead',
+        type='BEVFormerHead', #quant_linear_Q
         bev_h=bev_h_,
         bev_w=bev_w_,
+        weight_bit=quantize_bit,
+        activation_bit=quantize_bit,
         num_query=900,
         num_classes=10,
         in_channels=_dim_,
@@ -85,8 +93,8 @@ model = dict(
             use_shift=True,
             use_can_bus=True,
             embed_dims=_dim_,
-            weight_bit=6,
-            activation_bit=6,
+            weight_bit=quantize_bit,
+            activation_bit=quantize_bit,
             encoder=dict(
                 type='BEVFormerEncoder',
                 num_layers=3,
@@ -100,21 +108,21 @@ model = dict(
                             type='TemporalSelfAttention', #quant_linear_Q
                             embed_dims=_dim_,
                             num_levels=1,
-                            weight_bit=6,
-                            activation_bit=6,
+                            weight_bit=quantize_bit,
+                            activation_bit=quantize_bit,
                             ),
                         dict(
                             type='SpatialCrossAttention', #quant_linear_Q
                             pc_range=point_cloud_range,
-                            weight_bit=6,
-                            activation_bit=6,
+                            weight_bit=quantize_bit,
+                            activation_bit=quantize_bit,
                             deformable_attention=dict(
                                 type='MSDeformableAttention3D', #quant_linear_Q
                                 embed_dims=_dim_,
                                 num_points=8,
                                 num_levels=_num_levels_,
-                                weight_bit=6,
-                                activation_bit=6,),
+                                weight_bit=quantize_bit,
+                                activation_bit=quantize_bit,),
                             embed_dims=_dim_,
                         )
                     ],
@@ -138,8 +146,8 @@ model = dict(
                             type='CustomMSDeformableAttention', #quant_linear_Q
                             embed_dims=_dim_,
                             num_levels=1,
-                            weight_bit=6,
-                            activation_bit=6,
+                            weight_bit=quantize_bit,
+                            activation_bit=quantize_bit,
                             ),
                     ],
 
@@ -220,7 +228,7 @@ test_pipeline = [
 ]
 
 data = dict(
-    samples_per_gpu=1,
+    samples_per_gpu=2,
     workers_per_gpu=4,
     train=dict(
         type=dataset_type,
