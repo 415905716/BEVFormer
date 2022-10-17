@@ -49,13 +49,13 @@ queue_length = 3 # each sequence contains `queue_length` frames.
 
 quantize_bit=32
 quantize_backbone_bit=4
-# checkpoint='/root/niko/BEVFormer/ckpts/bevformer_tiny_epoch_24.pth'
+checkpoint='/home/niko/BEVFormer/ckpts/bevformer_tiny_epoch_24.pth'
 model = dict(
     type='BEVFormer',
     use_grid_mask=True,
     video_test_mode=True,
-    # init_cfg=dict(type='Pretrained', checkpoint=checkpoint),
-    pretrained=dict(img='/root/niko/BEVFormer/ckpts/resnet50_uniform4/checkpoint.pth.tar'),
+    init_cfg=dict(type='Pretrained', checkpoint=checkpoint),
+    # pretrained=dict(img='/home/niko/BEVFormer/ckpts/resnet50_uniform4/checkpoint.pth.tar'),
     img_backbone=dict(
         type='ResNet',
         depth=50,
@@ -67,6 +67,7 @@ model = dict(
         style='pytorch',
         conv_cfg=dict(type='Conv2d',weight_bit=quantize_backbone_bit, activation_bit=quantize_backbone_bit, weight_percentile=0, act_percentile=0, full_precision_flag=False, quant_act=True),
         conv1_cfg=dict(type='Conv2d',weight_bit=8, activation_bit=8, weight_percentile=0, act_percentile=0, full_precision_flag=False, quant_act=True),
+        init_cfg=dict(type='Pretrained', checkpoint='/home/niko/BEVFormer/ckpts/resnet50_uniform4/checkpoint.pth.tar'),
         ),
     img_neck=dict(
         type='FPN',
@@ -105,6 +106,8 @@ model = dict(
                 return_intermediate=False,
                 transformerlayers=dict(
                     type='BEVFormerLayer',
+                    weight_bit=quantize_bit,
+                    activation_bit=quantize_bit,  #quant_linear_Q
                     attn_cfgs=[
                         dict(
                             type='TemporalSelfAttention', #quant_linear_Q
@@ -152,7 +155,8 @@ model = dict(
                             activation_bit=quantize_bit,
                             ),
                     ],
-
+                    weight_bit=quantize_bit,
+                    activation_bit=quantize_bit,
                     feedforward_channels=_ffn_dim_,
                     ffn_dropout=0.1,
                     operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
@@ -230,7 +234,7 @@ test_pipeline = [
 ]
 
 data = dict(
-    samples_per_gpu=6,
+    samples_per_gpu=1,
     workers_per_gpu=4,
     train=dict(
         type=dataset_type,
