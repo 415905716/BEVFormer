@@ -266,6 +266,10 @@ class BEVFormerLayer(MyCustomBaseTransformerLayer):
                  act_cfg=dict(type='ReLU', inplace=True),
                  norm_cfg=dict(type='LN'),
                  ffn_num_fcs=2,
+
+                 weight_bit=32,
+                 activation_bit=32,
+
                  **kwargs):
         super(BEVFormerLayer, self).__init__(
             attn_cfgs=attn_cfgs,
@@ -275,6 +279,10 @@ class BEVFormerLayer(MyCustomBaseTransformerLayer):
             act_cfg=act_cfg,
             norm_cfg=norm_cfg,
             ffn_num_fcs=ffn_num_fcs,
+            
+            weight_bit=weight_bit,
+            activation_bit=activation_bit,
+            
             **kwargs)
         self.fp16_enabled = False
         assert len(operation_order) == 6
