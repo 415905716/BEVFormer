@@ -261,15 +261,14 @@ class BEVFormerLayer(MyCustomBaseTransformerLayer):
     def __init__(self,
                  attn_cfgs,
                  feedforward_channels,
+                 weight_bit,
+                 activation_bit,
+
                  ffn_dropout=0.0,
                  operation_order=None,
                  act_cfg=dict(type='ReLU', inplace=True),
                  norm_cfg=dict(type='LN'),
                  ffn_num_fcs=2,
-
-                 weight_bit=32,
-                 activation_bit=32,
-
                  **kwargs):
         super(BEVFormerLayer, self).__init__(
             attn_cfgs=attn_cfgs,

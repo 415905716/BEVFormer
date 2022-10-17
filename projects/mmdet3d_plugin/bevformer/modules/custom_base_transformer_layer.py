@@ -78,8 +78,8 @@ class MyCustomBaseTransformerLayer(BaseModule):
                      num_fcs=2,
                      ffn_drop=0.,
                      act_cfg=dict(type='ReLU', inplace=True),
-                     ffn_weight_bit=32,
-                     ffn_activation_bit=32,
+                     weight_bit=32,
+                     activation_bit=32,
                  ),
                  operation_order=None,
                  norm_cfg=dict(type='LN'),
@@ -91,8 +91,8 @@ class MyCustomBaseTransformerLayer(BaseModule):
             feedforward_channels='feedforward_channels',
             ffn_dropout='ffn_drop',
             ffn_num_fcs='num_fcs',
-            ffn_weight_bit='ffn_weight_bit',
-            ffn_activation_bit='ffn_activation_bit',
+            weight_bit='weight_bit',
+            activation_bit='activation_bit',
             )
         for ori_name, new_name in deprecated_args.items():
             if ori_name in kwargs:
