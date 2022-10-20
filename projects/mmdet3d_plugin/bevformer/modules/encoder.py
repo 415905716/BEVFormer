@@ -142,7 +142,7 @@ class BEVFormerEncoder(TransformerLayerSequence):
 
         reference_points_cam = reference_points_cam.permute(2, 1, 3, 0, 4)
         bev_mask = bev_mask.permute(2, 1, 3, 0, 4).squeeze(-1)
-
+        # import pdb; pdb.set_trace()
         return reference_points_cam, bev_mask
 
     @auto_fp16()
@@ -187,8 +187,17 @@ class BEVFormerEncoder(TransformerLayerSequence):
         ref_2d = self.get_reference_points(
             bev_h, bev_w, dim='2d', bs=bev_query.size(1), device=bev_query.device, dtype=bev_query.dtype)
 
+#         ref_2d.shape
+#           torch.Size([1, 2500, 1, 2])
+#         ref_3d.shape
+#           torch.Size([1, 4, 2500, 3])
+        
+        
         reference_points_cam, bev_mask = self.point_sampling(
             ref_3d, self.pc_range, kwargs['img_metas'])
+
+        #bev_mask.shape                 torch.Size([6, 1, 2500, 4])
+        #reference_points_cam.shape     torch.Size([6, 1, 2500, 4, 2])
 
         # bug: this code should be 'shift_ref_2d = ref_2d.clone()', we keep this bug for reproducing our results in paper.
         shift_ref_2d = ref_2d  # .clone()
@@ -233,7 +242,7 @@ class BEVFormerEncoder(TransformerLayerSequence):
         if self.return_intermediate:
             return torch.stack(intermediate)
 
-        return output
+        return output, bev_mask
 
 
 @TRANSFORMER_LAYER.register_module()

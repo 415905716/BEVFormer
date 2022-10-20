@@ -158,6 +158,9 @@ class PerceptionTransformer(BaseModule):
         shift = bev_queries.new_tensor(
             [shift_x, shift_y]).permute(1, 0)  # xy, bs -> bs, xy
 
+        if type(prev_bev) is tuple:
+            prev_bev = prev_bev[0]
+
         if prev_bev is not None:
             if prev_bev.shape[1] == bev_h * bev_w:
                 prev_bev = prev_bev.permute(1, 0, 2)
@@ -201,7 +204,7 @@ class PerceptionTransformer(BaseModule):
         feat_flatten = feat_flatten.permute(
             0, 2, 1, 3)  # (num_cam, H*W, bs, embed_dims)
 
-        bev_embed = self.encoder(
+        bev_embed, bev_mask = self.encoder(
             bev_queries,
             feat_flatten,
             feat_flatten,
@@ -215,7 +218,7 @@ class PerceptionTransformer(BaseModule):
             **kwargs
         )
 
-        return bev_embed
+        return bev_embed, bev_mask
 
     @auto_fp16(apply_to=('mlvl_feats', 'bev_queries', 'object_query_embed', 'prev_bev', 'bev_pos'))
     def forward(self,
@@ -267,7 +270,7 @@ class PerceptionTransformer(BaseModule):
                     otherwise None.
         """
 
-        bev_embed = self.get_bev_features(
+        bev_embed ,bev_mask = self.get_bev_features(
             mlvl_feats,
             bev_queries,
             bev_h,
@@ -304,4 +307,4 @@ class PerceptionTransformer(BaseModule):
 
         inter_references_out = inter_references
 
-        return bev_embed, inter_states, init_reference_out, inter_references_out
+        return bev_embed, inter_states, init_reference_out, inter_references_out, bev_mask, mlvl_feats
