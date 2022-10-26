@@ -42,11 +42,14 @@ _num_levels_ = 1
 bev_h_ = 150
 bev_w_ = 150
 queue_length = 3 # each sequence contains `queue_length` frames.
-
+quantize_bit=16
+quantize_backbone_bit=4
+checkpoint='/home/niko/BEVFormer/ckpts/bevformer_small_epoch_24.pth'
 model = dict(
     type='BEVFormer',
     use_grid_mask=True,
     video_test_mode=True,
+    init_cfg=dict(type='Pretrained', checkpoint=checkpoint),
     img_backbone=dict(
         type='ResNet',
         depth=101,
@@ -57,7 +60,8 @@ model = dict(
         norm_eval=True,
         style='pytorch',
         with_cp=True, # using checkpoint to save GPU memory
-        dcn=dict(type='DCNv2', deform_groups=1, fallback_on_stride=False), # original DCNv2 will print log when perform load_state_dict
+        conv_cfg=dict(type='Conv2d', weight_bit=quantize_bit, activation_bit=quantize_bit, full_precision_flag=False, quant_act=True),
+        dcn=dict(type='DCNv2', deform_groups=1, fallback_on_stride=False, weight_bit=quantize_bit, activation_bit=quantize_bit), # original DCNv2 will print log when perform load_state_dict
         stage_with_dcn=(False, False, True, True)),
     img_neck=dict(
         type='FPN',
@@ -66,11 +70,14 @@ model = dict(
         start_level=0,
         add_extra_convs='on_output',
         num_outs=_num_levels_,
-        relu_before_extra_convs=True),
+        relu_before_extra_convs=True,
+        conv_cfg=dict(type='Conv2d', weight_bit=quantize_bit, activation_bit=quantize_bit, full_precision_flag=False, quant_act=True)),
     pts_bbox_head=dict(
         type='BEVFormerHead',
         bev_h=bev_h_,
         bev_w=bev_w_,
+        weight_bit=quantize_bit,
+        activation_bit=quantize_bit, #quant_linear_Q
         num_query=900,
         num_classes=10,
         in_channels=_dim_,
@@ -78,13 +85,13 @@ model = dict(
         with_box_refine=True,
         as_two_stage=False,
         transformer=dict(
-            type='PerceptionTransformer', #quant_linear_Q
+            type='PerceptionTransformer', 
             rotate_prev_bev=True,
             use_shift=True,
             use_can_bus=True,
             embed_dims=_dim_,
-            weight_bit=4,
-            activation_bit=4,
+            weight_bit=quantize_bit,
+            activation_bit=quantize_bit,#quant_linear_Q
             encoder=dict(
                 type='BEVFormerEncoder',
                 num_layers=3,
@@ -93,25 +100,28 @@ model = dict(
                 return_intermediate=False,
                 transformerlayers=dict(
                     type='BEVFormerLayer',
+                    weight_bit=quantize_bit,
+                    activation_bit=quantize_bit,  #quant_linear_Q
                     attn_cfgs=[
                         dict(
-                            type='TemporalSelfAttention', #quant_linear_Q
+                            type='TemporalSelfAttention', 
                             embed_dims=_dim_,
                             num_levels=1,
-                            weight_bit=4,
-                            activation_bit=4,),
+                            weight_bit=quantize_bit,
+                            activation_bit=quantize_bit,#quant_linear_Q
+                            ),
                         dict(
-                            type='SpatialCrossAttention', #quant_linear_Q
+                            type='SpatialCrossAttention',
                             pc_range=point_cloud_range,
-                            weight_bit=4,
-                            activation_bit=4,
+                            weight_bit=quantize_bit,
+                            activation_bit=quantize_bit, #quant_linear_Q
                             deformable_attention=dict(
-                                type='MSDeformableAttention3D', #quant_linear_Q
+                                type='MSDeformableAttention3D', 
                                 embed_dims=_dim_,
                                 num_points=8,
                                 num_levels=_num_levels_,
-                                weight_bit=4,
-                                activation_bit=4,),
+                                weight_bit=quantize_bit,
+                                activation_bit=quantize_bit,), #quant_linear_Q
                             embed_dims=_dim_,
                         )
                     ],
@@ -132,13 +142,14 @@ model = dict(
                             num_heads=8,
                             dropout=0.1),
                          dict(
-                            type='CustomMSDeformableAttention', #quant_linear_Q
+                            type='CustomMSDeformableAttention', 
                             embed_dims=_dim_,
                             num_levels=1,
-                            weight_bit=4,
-                            activation_bit=4,),
+                            weight_bit=quantize_bit,
+                            activation_bit=quantize_bit,),#quant_linear_Q
                     ],
-
+                    weight_bit=quantize_bit,
+                    activation_bit=quantize_bit, #quant_linear_Q
                     feedforward_channels=_ffn_dim_,
                     ffn_dropout=0.1,
                     operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
@@ -267,7 +278,7 @@ total_epochs = 24
 evaluation = dict(interval=1, pipeline=test_pipeline)
 
 runner = dict(type='EpochBasedRunner', max_epochs=total_epochs)
-load_from = 'ckpts/r101_dcn_fcos3d_pretrain.pth'
+# load_from = 'ckpts/r101_dcn_fcos3d_pretrain.pth'
 log_config = dict(
     interval=50,
     hooks=[
