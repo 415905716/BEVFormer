@@ -42,14 +42,15 @@ _num_levels_ = 1
 bev_h_ = 150
 bev_w_ = 150
 queue_length = 3 # each sequence contains `queue_length` frames.
-quantize_bit=16
+quantize_bit=32
 quantize_backbone_bit=4
-checkpoint='/home/niko/BEVFormer/ckpts/bevformer_small_epoch_24.pth'
+quantize_act_bit=6
+# checkpoint='/home/niko/BEVFormer/ckpts/bevformer_small_epoch_24.pth'
 model = dict(
     type='BEVFormer',
     use_grid_mask=True,
     video_test_mode=True,
-    init_cfg=dict(type='Pretrained', checkpoint=checkpoint),
+    # init_cfg=dict(type='Pretrained', checkpoint=checkpoint),
     img_backbone=dict(
         type='ResNet',
         depth=101,
@@ -60,8 +61,9 @@ model = dict(
         norm_eval=True,
         style='pytorch',
         with_cp=True, # using checkpoint to save GPU memory
-        conv_cfg=dict(type='Conv2d', weight_bit=quantize_bit, activation_bit=quantize_bit, full_precision_flag=False, quant_act=True),
-        dcn=dict(type='DCNv2', deform_groups=1, fallback_on_stride=False, weight_bit=quantize_bit, activation_bit=quantize_bit), # original DCNv2 will print log when perform load_state_dict
+        conv_cfg=dict(type='Conv2d', weight_bit=quantize_backbone_bit, activation_bit=quantize_act_bit, full_precision_flag=False, quant_act=True),
+        conv1_cfg=dict(type='Conv2d',weight_bit=8, activation_bit=8, weight_percentile=0, act_percentile=0, full_precision_flag=False, quant_act=True),
+        dcn=dict(type='DCNv2', deform_groups=1, fallback_on_stride=False, weight_bit=quantize_backbone_bit, activation_bit=quantize_act_bit), # original DCNv2 will print log when perform load_state_dict
         stage_with_dcn=(False, False, True, True)),
     img_neck=dict(
         type='FPN',
@@ -71,7 +73,7 @@ model = dict(
         add_extra_convs='on_output',
         num_outs=_num_levels_,
         relu_before_extra_convs=True,
-        conv_cfg=dict(type='Conv2d', weight_bit=quantize_bit, activation_bit=quantize_bit, full_precision_flag=False, quant_act=True)),
+        conv_cfg=dict(type='Conv2d', weight_bit=quantize_backbone_bit, activation_bit=quantize_act_bit, full_precision_flag=False, quant_act=True)),
     pts_bbox_head=dict(
         type='BEVFormerHead',
         bev_h=bev_h_,
